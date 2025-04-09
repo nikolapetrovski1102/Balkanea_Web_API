@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authorization;
+using Balkanea_hotel_extract.DTOs;
 
 namespace Balkanea_hotel_extract.Controllers
 {
@@ -17,7 +18,7 @@ namespace Balkanea_hotel_extract.Controllers
         private string absolutePath = Directory.GetCurrentDirectory().ToString();
 
         [HttpPost("process")]
-        public IActionResult ProcessDump()
+        public IActionResult ProcessDump([FromBody] ExtractDTO extractDTO)
         {
             try
             {
@@ -29,7 +30,7 @@ namespace Balkanea_hotel_extract.Controllers
                     return NotFound("Input file not found");
                 }
 
-                var groupedHotels = ProcessFile(hotel_dump_path);
+                var groupedHotels = ProcessFile(hotel_dump_path, extractDTO);
                 var outputPath = WriteOutputFile(groupedHotels);
 
                 return Ok(new
@@ -43,7 +44,7 @@ namespace Balkanea_hotel_extract.Controllers
                 return StatusCode(500, $"Error processing file: {ex.Message}");
             }
         }
-        private Dictionary<int, List<string>> ProcessFile(string filePath)
+        private Dictionary<int, List<string>> ProcessFile(string filePath, ExtractDTO extractDTO)
         {
             var groupedHotels = new Dictionary<int, List<string>>();
 
@@ -68,7 +69,7 @@ namespace Balkanea_hotel_extract.Controllers
                             int rid = regionId.GetInt32();
                             string cc = countryCode.GetString() ?? "";
 
-                            if (rid == 3186 && cc == "GR")
+                            if (rid == extractDTO.regionId && cc == extractDTO.countryCode)
                             {
                                 // Get the entire JSON as a formatted string
                                 var jsonString = JsonSerializer.Serialize(root, new JsonSerializerOptions
