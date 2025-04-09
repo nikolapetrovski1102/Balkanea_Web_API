@@ -1,0 +1,6 @@
+@Balkanea_hotel_extract_HostAddress = http://localhost:5058
+
+GET {{Balkanea_hotel_extract_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
