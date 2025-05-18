@@ -10,10 +10,10 @@ namespace Balkanea_hotel_extract.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(AuthenticationSchemes = "BasicAuthentication")]
+    //[Authorize(AuthenticationSchemes = "BasicAuthentication")]
     public class ExtractHotelsController : Controller
     {
-        private const string InputFileName = "feed_en_v3 (3).json.zst";
+        private const string InputFileName = "feed_en_v3.json.zst";
         private const string OutputDirectory = "output";
         private string absolutePath = Directory.GetCurrentDirectory().ToString();
 
@@ -22,21 +22,20 @@ namespace Balkanea_hotel_extract.Controllers
         {
             try
             {
-
-                string hotel_dump_path = Path.Combine(absolutePath, "ZSTDHotelDump\\feed_en_v3 (3).json.zst");
+                string hotel_dump_path = Path.Combine(absolutePath, $"ZSTDHotelDump\\{InputFileName}");
 
                 if (!System.IO.File.Exists(hotel_dump_path))
                 {
                     return NotFound("Input file not found");
                 }
 
-                var groupedHotels = ProcessFile(hotel_dump_path, extractDTO);
-                var outputPath = WriteOutputFile(groupedHotels);
+                var result = ProcessFile(hotel_dump_path, extractDTO);
+                var outputPath = WriteOutputFile(result.GroupedHotels, result.Statistics, extractDTO.countryCode);
 
                 return Ok(new
                 {
                     Message = "Processing completed successfully",
-                    OutputFile = groupedHotels
+                    Statistics = result.Statistics
                 });
             }
             catch (Exception ex)
@@ -44,9 +43,11 @@ namespace Balkanea_hotel_extract.Controllers
                 return StatusCode(500, $"Error processing file: {ex.Message}");
             }
         }
-        private Dictionary<int, List<string>> ProcessFile(string filePath, ExtractDTO extractDTO)
+
+        private (Dictionary<int, List<string>> GroupedHotels, HotelStatistics Statistics) ProcessFile(string filePath, ExtractDTO extractDTO)
         {
             var groupedHotels = new Dictionary<int, List<string>>();
+            var statistics = new HotelStatistics();
 
             using (var fileStream = System.IO.File.OpenRead(filePath))
             using (var decompressor = new ZstdNet.DecompressionStream(fileStream))
@@ -67,9 +68,9 @@ namespace Balkanea_hotel_extract.Controllers
                             region.TryGetProperty("country_code", out JsonElement countryCode))
                         {
                             int rid = regionId.GetInt32();
-                            string cc = countryCode.GetString() ?? "";
+                            string cc = countryCode.GetString() ?? "GR";
 
-                            if (rid == extractDTO.regionId && cc == extractDTO.countryCode)
+                            if (cc == extractDTO.countryCode)
                             {
                                 // Get the entire JSON as a formatted string
                                 var jsonString = JsonSerializer.Serialize(root, new JsonSerializerOptions
@@ -81,8 +82,11 @@ namespace Balkanea_hotel_extract.Controllers
                                 {
                                     hotelList = new List<string>();
                                     groupedHotels[rid] = hotelList;
+                                    statistics.RegionCounts[rid] = 0;
                                 }
                                 hotelList.Add(jsonString);
+                                statistics.RegionCounts[rid]++;
+                                statistics.TotalHotels++;
                             }
                         }
                     }
@@ -97,24 +101,25 @@ namespace Balkanea_hotel_extract.Controllers
                 }
             }
 
-            return groupedHotels;
+            statistics.TotalRegions = groupedHotels.Count;
+            return (groupedHotels, statistics);
         }
 
-        private string WriteOutputFile(Dictionary<int, List<string>> groupedHotels)
+        private string WriteOutputFile(Dictionary<int, List<string>> groupedHotels, HotelStatistics statistics, string countryCode)
         {
             Directory.CreateDirectory(OutputDirectory);
             var outputPath = Path.Combine(OutputDirectory, $"{DateTime.Today:dd-MM-yyyy}.json");
-            
-            var finalOutput = new Dictionary<int, List<JsonElement>>();
 
-            foreach (var (regionId, jsonStrings) in groupedHotels)
+            var output = new
             {
-                var hotels = jsonStrings
-                    .Select(json => JsonDocument.Parse(json).RootElement)
-                    .ToList();
-
-                finalOutput[regionId] = hotels;
-            }
+                Statistics = new
+                {
+                    Coutry = countryCode,
+                    TotalRegions = statistics.TotalRegions,
+                    TotalHotels = statistics.TotalHotels,
+                    RegionCounts = statistics.RegionCounts
+                }
+            };
 
             var options = new JsonSerializerOptions
             {
@@ -122,9 +127,16 @@ namespace Balkanea_hotel_extract.Controllers
                 Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
             };
 
-            System.IO.File.WriteAllText(outputPath, JsonSerializer.Serialize(finalOutput, options));
+            System.IO.File.WriteAllText(outputPath, JsonSerializer.Serialize(output, options));
 
             return outputPath;
         }
+    }
+
+    public class HotelStatistics
+    {
+        public int TotalRegions { get; set; } = 0;
+        public int TotalHotels { get; set; } = 0;
+        public Dictionary<int, int> RegionCounts { get; set; } = new Dictionary<int, int>();
     }
 }
